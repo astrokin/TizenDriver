@@ -1,7 +1,6 @@
 import Foundation
-import Starscream
 
-@available(macOS 10.14, *)
+@available(macOS 10.15, *)
 public class TizenDriver:WebSocketDelegate{
     
     // MARK: - Setup
@@ -20,7 +19,7 @@ public class TizenDriver:WebSocketDelegate{
         return request
     }
     
-    private var webSocket:WebSocket! = nil
+    var webSocket:WebSocket! = nil
     
     let standardUserDefaults = UserDefaults.standard
     var tizenSettings:[String:Any]
@@ -114,8 +113,7 @@ public class TizenDriver:WebSocketDelegate{
             case .connecting:
                 
                 if connectionState != oldValue{
-                    webSocket = WebSocket(request: self.urlRequest, certPinner: FoundationSecurity(allowSelfSigned: true))
-                    webSocket.delegate = self
+                    webSocket = WebSocket(urlRequest: urlRequest, delegate: self)
                     webSocket.connect()
                 }
                 
@@ -155,6 +153,7 @@ public class TizenDriver:WebSocketDelegate{
         self.tizenSettings = standardUserDefaults.dictionary(forKey: "TizenSettings") ?? [:]
         self.allDeviceTokens = tizenSettings["DeviceTokens"] as? [String:Int] ?? [:]
         self.deviceToken = allDeviceTokens[deviceName] ?? 0
+        
     }
     
     deinit {
@@ -162,7 +161,6 @@ public class TizenDriver:WebSocketDelegate{
         connectionState = .disconnecting
         powerState = .poweringDown
     }
-    
     
     // MARK: - Remotes Functions
     public func cycleTroughChannels(){
@@ -213,41 +211,32 @@ public class TizenDriver:WebSocketDelegate{
         }}
         """
         
-        webSocket.write(string: command)
+        webSocket.send(text: command)
     }
     
     // MARK: - Connection lifecycle
     
-    public func didReceive(event: WebSocketEvent, client: WebSocket) {
+    public func connected() {
+        powerState = max(self.powerState, .poweredOn)
+        connectionState = max(self.connectionState, .connected)
+    }
+    
+    public func disconnected(error: Error?) {
+        connectionState = min(self.connectionState, .disconnected)
         
-        switch event {
-        case .connected(let headers):
-            powerState = max(self.powerState, .poweredOn)
-            connectionState = max(self.connectionState, .connected)
-        case .disconnected(let reason, let code):
-            connectionState = min(self.connectionState, .disconnected)
-        case .text(let text):
-            powerState = max(self.powerState, .poweredOn)
-            connectionState = max(self.connectionState, .connected)
-            checkPairing(text)
-        case .binary(let data):
-            break
-        case .ping(_):
-            powerState = max(self.powerState, .poweredOn)
-            connectionState = max(self.connectionState, .connected)
-        break // Pongs answers are handled automaticly by default
-        case .pong(_):
-            break
-        case .viablityChanged(_):
-            break
-        case .reconnectSuggested(_):
-            break
-        case .cancelled:
-            break
-        case .error(let error):
-            print("❌:\t Webocket returned error:\n\(error)")
-        }
-        
+    }
+    
+    public func received(text: String) {
+        powerState = max(self.powerState, .poweredOn)
+        connectionState = max(self.connectionState, .connected)
+        checkPairing(text)
+    }
+    
+    public func received(data: Data) {
+    }
+    
+    public func received(error: Error) {
+        print("❌:\t Webocket returned error:\n\(error)")
     }
     
     private func checkPairing(_ result:String){
@@ -255,38 +244,47 @@ public class TizenDriver:WebSocketDelegate{
         if result.contains("token"){
             
             let regexPattern = "\"token\":\"(\\d{8})\""
-            if let tokenString = result.capturedGroups(withRegex: regexPattern).first, let newToken = Int(tokenString){
+            if let tokenString = result.matchesAndGroups(withRegex: regexPattern).last?.last, let newToken = Int(tokenString){
                 if newToken != deviceToken{
                     // Try to connect all over again with the new token in place
                     deviceToken = newToken
                 }else{
                     // All is perfect
-                    
-                    // Store the devicetoken for reuse
-                    allDeviceTokens[deviceName] = deviceToken
-                    tizenSettings["DeviceTokens"] = allDeviceTokens
-                    standardUserDefaults.set(tizenSettings, forKey: "TizenSettings")
-                    
                     connectionState = .paired
-                    
                 }
                 
+                // Store the devicetoken for reuse
+                allDeviceTokens[deviceName] = deviceToken
+                tizenSettings["DeviceTokens"] = allDeviceTokens
+                standardUserDefaults.set(tizenSettings, forKey: "TizenSettings")
             }
         }
     }
     
-    
 }
 
 // MARK: - Helper methods
-extension String {
+public extension String {
     
-    public func quote()->String{
+    func quote()->String{
         return "\"\(self)\""
     }
     
-    public func capturedGroups(withRegex pattern: String) -> [String] {
-        var results:[String] = []
+    func matchesAndGroups(withRegex pattern: String) -> [[String]] {
+        
+        /**
+         Returns a two-dimensional  array of regexMatches
+         each entry consists of the match (at index 0) followed by any captured groups/subexpressions
+         
+         - version: 1.0
+         
+         - Parameter withRegex : a RegEx pattern
+         
+         - Returns: [[String]]
+         
+         */
+        
+        var results:[[String]] = []
         
         var regex: NSRegularExpression
         do {
@@ -296,19 +294,19 @@ extension String {
         }
         let matches = regex.matches(in: self, options: [], range: NSRange(location:0, length: self.count))
         
-        guard let match = matches.first else { return results }
-        
-        let lastRangeIndex = match.numberOfRanges - 1
-        guard lastRangeIndex >= 1 else { return results }
-        
-        for i in 1...lastRangeIndex {
-            let capturedGroupIndex = match.range(at: i)
-            let matchedString = (self as NSString).substring(with: capturedGroupIndex)
-            results.append(matchedString)
+        results = matches.map{match in
+            
+            var expressions:[String] = []
+            let numberOfExpressions = match.numberOfRanges
+            
+            for i in 0...numberOfExpressions-1 {
+                let expressionRange = match.range(at: i)
+                let expression = (self as NSString).substring(with: expressionRange)
+                expressions.append(expression)
+            }
+            return expressions
         }
-        
         return results
     }
     
 }
-
