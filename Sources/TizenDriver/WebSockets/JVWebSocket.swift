@@ -49,8 +49,6 @@ public class WebSocket:NSObject, URLSessionWebSocketDelegate {
         }
         
     }
-
-    
     
     public func connect() {
         webSocketTask.resume()
@@ -58,7 +56,7 @@ public class WebSocket:NSObject, URLSessionWebSocketDelegate {
     }
     
     public func disconnect() {
-        webSocketTask.cancel(with: .normalClosure, reason: nil)
+        webSocketTask.cancel(with: .goingAway, reason: nil)
     }
     
     
@@ -80,7 +78,13 @@ public class WebSocket:NSObject, URLSessionWebSocketDelegate {
         }
     }
     
-    //TODO: - Implement Ping and Pong methods
+    public func ping() {
+        webSocketTask.sendPing { error in
+            if let error = error {
+                self.webSocketDelegate?.received(error: error)
+            }
+        }
+    }
     
     private func listen()  {
         
@@ -95,8 +99,9 @@ public class WebSocket:NSObject, URLSessionWebSocketDelegate {
                 case .data(let data):
                     self.webSocketDelegate?.received(data: data)
                 @unknown default:
-                    break
+                    fatalError()
                 }
+                self.listen()
                 
             case .failure(let error):
                 self.webSocketDelegate?.received(error: error)
