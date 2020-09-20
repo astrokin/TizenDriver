@@ -50,19 +50,21 @@ public class TizenDriver:WebSocketDelegate{
                     print("🔳:\t '\(tvName)' powered off")
                 }
             case .poweringDown:
-                if powerState != oldValue{
-                    send(commandKey: .KEY_POWER)
+                if let previousState = oldValue{
+                    if (powerState != previousState) && (previousState > .poweringDown) {
+                        send(commandKey: .KEY_POWER)
+                    }
                 }
             case .poweringUp:
-                
-                if powerState != oldValue{
-                    
-                    // Perform a WakeOnLan
-                    let tv = Awake.Device(MAC: macAddress, BroadcastAddr: "255.255.255.255", Port: 9)
-                    _ = Awake.target(device: tv)
-                    connectionState = .connecting
+                if let previousState = oldValue{
+                    if (powerState != previousState) && (previousState < .poweringUp){
+                        
+                        // Perform a WakeOnLan
+                        let tv = Awake.Device(MAC: macAddress, BroadcastAddr: "255.255.255.255", Port: 9)
+                        _ = Awake.target(device: tv)
+                        connectionState = .connecting
+                    }
                 }
-                
             case .poweredOn:
                 
                 if powerState != oldValue{
@@ -97,7 +99,7 @@ public class TizenDriver:WebSocketDelegate{
         didSet{
             
             switch connectionState {
-                
+            
             case .disconnected:
                 
                 if connectionState != oldValue{
