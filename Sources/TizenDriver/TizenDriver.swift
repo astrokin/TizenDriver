@@ -1,6 +1,6 @@
 import Foundation
+import JVCocoa
 
-@available(macOS 10.15, *)
 public class TizenDriver:WebSocketDelegate{
     
     // MARK: - Setup
@@ -238,7 +238,7 @@ public class TizenDriver:WebSocketDelegate{
     }
     
     public func received(error: Error) {
-        print("❌:\t Webocket returned error:\n\(error)")
+        print("❌:\t Websocket returned error:\n\(error)")
     }
     
     private func checkPairing(_ result:String){
