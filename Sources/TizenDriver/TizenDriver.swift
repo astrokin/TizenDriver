@@ -21,10 +21,8 @@ public class TizenDriver:WebSocketDelegate{
     
     var webSocket:WebSocket! = nil
     
-    let standardUserDefaults = UserDefaults.standard
-    var tizenSettings:[String:Any]
-    var allDeviceTokens:[String:Int]
-    var deviceToken:Int
+	var allDeviceTokens:[String:Int]!
+    var deviceToken:Int!
     
     public enum PowerState:Int, Comparable{
         
@@ -152,10 +150,8 @@ public class TizenDriver:WebSocketDelegate{
         self.port = port
         self.deviceName = deviceName
         
-        self.tizenSettings = standardUserDefaults.dictionary(forKey: "TizenSettings") ?? [:]
-        self.allDeviceTokens = tizenSettings["DeviceTokens"] as? [String:Int] ?? [:]
-        self.deviceToken = allDeviceTokens[deviceName] ?? 0
-        
+		self.allDeviceTokens = getPreference(forKey: .tizenSettings, secondaryKey: .deviceTokens) ?? [:]
+        self.deviceToken = allDeviceTokens[deviceName] ?? 0        
     }
     
     deinit {
@@ -187,7 +183,6 @@ public class TizenDriver:WebSocketDelegate{
             commandQueue += newCommands
         }
         
-        //FIXME: - Was this changed incorrectly????
         guard (connectionState == .paired) else{
             powerState = max(powerState ?? .poweredOff, .poweringUp)
             return
@@ -257,58 +252,9 @@ public class TizenDriver:WebSocketDelegate{
                 
                 // Store the devicetoken for reuse
                 allDeviceTokens[deviceName] = deviceToken
-                tizenSettings["DeviceTokens"] = allDeviceTokens
-                standardUserDefaults.set(tizenSettings, forKey: "TizenSettings")
+				setPreference(allDeviceTokens, forKey: .tizenSettings, secondaryKey: .deviceTokens)
             }
         }
-    }
-    
-}
-
-// MARK: - Helper methods
-public extension String {
-    
-    func quote()->String{
-        return "\"\(self)\""
-    }
-    
-    func matchesAndGroups(withRegex pattern: String) -> [[String]] {
-        
-        /**
-         Returns a two-dimensional  array of regexMatches
-         each entry consists of the match (at index 0) followed by any captured groups/subexpressions
-         
-         - version: 1.0
-         
-         - Parameter withRegex : a RegEx pattern
-         
-         - Returns: [[String]]
-         
-         */
-        
-        var results:[[String]] = []
-        
-        var regex: NSRegularExpression
-        do {
-            regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
-        } catch {
-            return results
-        }
-        let matches = regex.matches(in: self, options: [], range: NSRange(location:0, length: self.count))
-        
-        results = matches.map{match in
-            
-            var expressions:[String] = []
-            let numberOfExpressions = match.numberOfRanges
-            
-            for i in 0...numberOfExpressions-1 {
-                let expressionRange = match.range(at: i)
-                let expression = (self as NSString).substring(with: expressionRange)
-                expressions.append(expression)
-            }
-            return expressions
-        }
-        return results
     }
     
 }
