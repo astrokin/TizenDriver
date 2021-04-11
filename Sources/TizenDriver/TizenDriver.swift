@@ -12,7 +12,7 @@ public class TizenDriver:WebSocketDelegate{
     
     private var urlRequest:URLRequest{
         let base64DeviceName = Data(deviceName.utf8).base64EncodedString()
-        let connectionString = "wss://\(ipAddress):\(port)/api/v2/channels/samsung.remote.control?name=\(base64DeviceName)&token=\(deviceToken)"
+        let connectionString = "wss://\(ipAddress):\(port)/api/v2/channels/samsung.remote.control?name=\(base64DeviceName)&token=\(deviceToken ?? 0)"
         print("Connectionstring:\n\(connectionString)")
         var request =  URLRequest(url: URL(string: connectionString)!)
         request.timeoutInterval = 5
@@ -21,8 +21,8 @@ public class TizenDriver:WebSocketDelegate{
     
     var webSocket:WebSocket! = nil
     
-	var allDeviceTokens:[String:Int]!
-    var deviceToken:Int!
+	var pairingInfo:[String:[String:Int]] = [:]
+	var deviceToken:Int!
     
     public enum PowerState:Int, Comparable{
         
@@ -125,8 +125,8 @@ public class TizenDriver:WebSocketDelegate{
                 
             case .paired:
                 
-                if connectionState != oldValue{
-                    print("✅:\t \(deviceName) paired with '\(tvName)' using key \(deviceToken)")
+				if connectionState != oldValue, let token = self.deviceToken{
+                    print("✅:\t \(deviceName) paired with '\(tvName)' using key \(token)")
                 }
                 // SEND QUEUED COMMANDS ONCE PAIRING SUCCEEDED!!
                 if !commandQueue.isEmpty{
@@ -150,8 +150,10 @@ public class TizenDriver:WebSocketDelegate{
         self.port = port
         self.deviceName = deviceName
         
-		self.allDeviceTokens = getPreference(forKey: .tizenSettings, secondaryKey: .deviceTokens) ?? [:]
-        self.deviceToken = allDeviceTokens[deviceName] ?? 0        
+		self.pairingInfo = getPreference(forKeyPath: .tizenSettings, .pairingInfo) ?? [:]
+		self.deviceToken = self.pairingInfo[tvName]?[deviceName]
+		print("ℹ️:\t Token:\(self.deviceToken) from prefs")
+
     }
     
     deinit {
@@ -242,17 +244,18 @@ public class TizenDriver:WebSocketDelegate{
             
             let regexPattern = "\"token\":\"(\\d{8})\""
             if let tokenString = result.matchesAndGroups(withRegex: regexPattern).last?.last, let newToken = Int(tokenString){
+				print("ℹ️:\t Token:(tokenString) returned")
                 if newToken != deviceToken{
                     // Try to connect all over again with the new token in place
-                    deviceToken = newToken
+					self.deviceToken = newToken
                 }else{
                     // All is perfect
                     connectionState = .paired
                 }
                 
-                // Store the devicetoken for reuse
-                allDeviceTokens[deviceName] = deviceToken
-				setPreference(allDeviceTokens, forKey: .tizenSettings, secondaryKey: .deviceTokens)
+                // Store the paring of this TV for reuse
+				self.pairingInfo = [self.tvName:[self.deviceName:self.deviceToken]]
+				setPreference(self.pairingInfo, forKeyPath: .tizenSettings, .pairingInfo)
             }
         }
     }

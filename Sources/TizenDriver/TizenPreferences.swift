@@ -8,12 +8,12 @@
 import JVCocoa
 
 extension TizenDriver:PreferenceBased {
-		
+	
 	public enum PreferenceKey:String, StringRepresentableEnum{
 		
 		case tizenSettings
 		
-		case deviceTokens
+		case pairingInfo
 				
 	}
 		
@@ -21,7 +21,7 @@ extension TizenDriver:PreferenceBased {
 		
 		var preferences:[String:[String:Int]] = [:]
 		
-		preferences["DeviceTokens"] = getPreference(forKey: .tizenSettings, secondaryKey: .deviceTokens)
+		preferences["pairingInfo"] = getPreference(forKeyPath: .tizenSettings, .pairingInfo)
 		
 		return preferences
 	}
