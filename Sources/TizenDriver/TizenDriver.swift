@@ -248,6 +248,7 @@ public class TizenDriver:WebSocketDelegate{
                 if newToken != deviceToken{
                     // Try to connect all over again with the new token in place
 					self.deviceToken = newToken
+					self.connectionState = .connecting
                 }else{
                     // All is perfect
                     connectionState = .paired
