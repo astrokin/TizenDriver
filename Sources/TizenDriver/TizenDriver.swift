@@ -152,7 +152,7 @@ public class TizenDriver:WebSocketDelegate{
         
 		self.pairingInfo = getPreference(forKeyPath: .tizenSettings, .pairingInfo) ?? [:]
 		self.deviceToken = self.pairingInfo[tvName]?[deviceName]
-		print("ℹ️:\t Token:\(self.deviceToken) from prefs")
+		print("ℹ️:\t Token:\(String(describing: self.deviceToken)) from prefs")
 
     }
     
