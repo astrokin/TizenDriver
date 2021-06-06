@@ -6,8 +6,9 @@
 //
 
 public enum TizenCommand:String {
+	
     case KEY_POWER
-    
+
     case KEY_POWEROFF
     case KEY_POWERON
     
@@ -17,6 +18,7 @@ public enum TizenCommand:String {
     case KEY_RIGHT
     case KEY_CHUP
     case KEY_CHDOWN
+	case KEY_PRECH
     case KEY_ENTER
     case KEY_RETURN
     case KEY_EXIT
@@ -49,4 +51,9 @@ public enum TizenCommand:String {
     case KEY_HDMI
     case KEY_DTV_LINK
     case KEY_EXT5
+	case KEY_EMANUAL
+	case KEY_SEARCH
+	case KEY_CAPTION
+
 }
+
