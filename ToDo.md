@@ -1,4 +1,6 @@
 # TizenDriver ToDo
 
 
-If acceptance of pull request, integrate Awake as a package instead of by copying
+If  the  pull request gets accepted, integrate Awake as a package instead of by copying
+
+Implement feedback

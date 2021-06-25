@@ -1,6 +1,6 @@
 import Foundation
+import Awake
 import JVCocoa
-import SwiftyPing
 
 public class TizenDriver:WebSocketDelegate{
 	
@@ -63,9 +63,12 @@ public class TizenDriver:WebSocketDelegate{
 						
 						if (powerState < .poweringUp){
 							// Perform a WakeOnLan to turn the TV on
+							// (when not reachable)
 							let tv = Awake.Device(MAC: macAddress, BroadcastAddr: "255.255.255.255", Port: 9)
 							_ = Awake.target(device: tv)
 						}else{
+							// Send KEY_POWER to the TV turn on
+							// (when reachable)
 							queue(commands: [.KEY_POWER])
 						}
 						

@@ -13,7 +13,9 @@ let package = Package(
             targets: ["TizenDriver"]),
     ],
     dependencies: [
-		.package(name: "JVCocoa", url: "https://github.com/TheMisfit68/JVCocoa.git", .branch("master"))
+		// Dependencies declare other packages that this package depends on.
+		.package(name: "Awake", url: "https://github.com/jesper-lindberg/Awake.git", .branch("master")),
+		.package(name: "JVCocoa", url: "https://github.com/TheMisfit68/JVCocoa.git", .branch("master")),
     ],
     targets: [
         // Targets are the basic building blocks of a package. A target can define a module or a test suite.
@@ -21,6 +23,7 @@ let package = Package(
         .target(
             name: "TizenDriver",
             dependencies: [
+				"Awake",
                 "JVCocoa"
             ]
         )

@@ -8,9 +8,6 @@
 public enum TizenCommand:String {
 	
     case KEY_POWER
-
-    case KEY_POWEROFF
-    case KEY_POWERON
     
     case KEY_UP
     case KEY_DOWN
