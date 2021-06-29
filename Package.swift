@@ -14,7 +14,8 @@ let package = Package(
     ],
     dependencies: [
 		// Dependencies declare other packages that this package depends on.
-		.package(name: "Awake", url: "https://github.com/jesper-lindberg/Awake.git", .branch("master")),
+		.package(name: "Awake", url: "https://github.com/TheMisfit68/Awake.git"
+				 , .branch("PublicAccess")),
 		.package(name: "JVCocoa", url: "https://github.com/TheMisfit68/JVCocoa.git", .branch("master")),
     ],
     targets: [
