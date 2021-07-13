@@ -2,10 +2,10 @@ import Foundation
 import Awake
 import JVCocoa
 
-public class TizenDriver:WebSocketDelegate{
+open class TizenDriver:WebSocketDelegate{
 	
 	// MARK: - Setup
-	let tvName:String
+	public let tvName:String
 	let macAddress:String
 	let ipAddress:String
 	let port:Int
@@ -40,7 +40,7 @@ public class TizenDriver:WebSocketDelegate{
 		}
 	}
 	
-	public var powerState:PowerState!{
+	open var powerState:PowerState!{
 		
 		get{
 			
