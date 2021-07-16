@@ -10,22 +10,11 @@ open class TizenDriver:WebSocketDelegate{
 	let ipAddress:String
 	let port:Int
 	let deviceName:String
-	let pinger:Pinger = Pinger()
-	
-	private var urlRequest:URLRequest{
-		let base64DeviceName = Data(deviceName.utf8).base64EncodedString()
-		let connectionString = "wss://\(ipAddress):\(port)/api/v2/channels/samsung.remote.control?name=\(base64DeviceName)&token=\(deviceToken ?? 0)"
-		print("Connectionstring:\n\(connectionString)")
-		var request =  URLRequest(url: URL(string: connectionString)!)
-		request.timeoutInterval = 5
-		return request
-	}
-	
-	var webSocket:WebSocket! = nil
-	
 	var pairingInfo:[String:[String:Int]] = [:]
 	var deviceToken:Int!
 	
+	private var powerStateTimer:Timer!
+	private let powerStatePinger:Pinger = Pinger()
 	public enum PowerState:Int, Comparable{
 		
 		case undefined
@@ -40,50 +29,71 @@ open class TizenDriver:WebSocketDelegate{
 		}
 	}
 	
-	open var powerState:PowerState!{
+	open var powerState:PowerState = .poweredOff{
+		
+		// Prepare for .poweredOn or .poweredOff
+		willSet{
+			
+			switch newValue {
+					
+				case .poweringUp:
+					
+					// When reachable
+					if (powerState != .poweredOn){
+						// Perform a WakeOnLan to turn the TV on
+						let tv = Awake.Device(MAC: macAddress, BroadcastAddr: "255.255.255.255", Port: 9)
+						_ = Awake.target(device: tv)
+					}else{
+						queue(commands: [.KEY_POWER])
+					}
+					
+				case .poweringDown:
+					
+					if (powerState != .poweredOff) {
+						// Send KEY_POWER to the TV turn off
+						queue(commands: [.KEY_POWER])
+					}
+					
+				default:
+					break
+			}
+		}
+		
+		didSet{
+			
+			if powerState == .undefined{
+				powerState = physicalPowerState
+			}
+		}
+		
+	}
+	private var physicalPowerState:PowerState{
 		
 		get{
-			
-			// Check ping-repons to detect de TV's actual power-state
-			let actualPowerState = self.pinger.ping(ipAddress, maxResponsTime: 1)
-			if actualPowerState == true{
+			let fysicalPowerState = self.powerStatePinger.ping(ipAddress, timeOut: 1.0, maxResponsTime: 1.0)
+			if fysicalPowerState == true{
 				print("🔲:\t '\(tvName)' powered on")
+				if let connectionState =  self.connectionState, connectionState <= .connected{
+					self.connectionState = .connecting
+				}
 				return .poweredOn
 			}else{
 				print("🔳:\t '\(tvName)' powered off")
+				connectionState = .disconnected
 				return .poweredOff
 			}
 		}
 		
-		set{
-			
-				switch newValue {
-					
-					case .poweringUp:
-						
-						if (powerState < .poweringUp){
-							// Perform a WakeOnLan to turn the TV on
-							// (when not reachable)
-							let tv = Awake.Device(MAC: macAddress, BroadcastAddr: "255.255.255.255", Port: 9)
-							_ = Awake.target(device: tv)
-						}else{
-							// Send KEY_POWER to the TV turn on
-							// (when reachable)
-							queue(commands: [.KEY_POWER])
-						}
-						
-					case .poweringDown:
-						
-						if (powerState > .poweringDown) {
-							// Send KEY_POWER to the TV turn off
-							queue(commands: [.KEY_POWER])
-						}
-						
-					default:
-						break
-				}
-			
-		}
+	}
+	
+	private var webSocket:WebSocket{
+		let base64DeviceName = Data(deviceName.utf8).base64EncodedString()
+		let connectionString = "wss://\(ipAddress):\(port)/api/v2/channels/samsung.remote.control?name=\(base64DeviceName)&token=\(deviceToken ?? 0)"
+		print("Connectionstring:\n\(connectionString)")
+		var urlRequest =  URLRequest(url: URL(string: connectionString)!)
+		urlRequest.timeoutInterval = 5
+		let webSocket = WebSocket(urlRequest: urlRequest, delegate: self)
+		return webSocket
 	}
 	
 	private enum ConnectionState:Int, Comparable{
@@ -104,28 +114,31 @@ open class TizenDriver:WebSocketDelegate{
 	
 	private var connectionState:ConnectionState! = nil{
 		
+		// Prepare for .connected or .disconnected
+		willSet{
+			
+			switch newValue {
+					
+				case .disconnecting:
+					
+					webSocket.disconnect()
+					
+				case .connecting:
+					
+					webSocket.connect()
+					
+				default:
+					break
+					
+			}
+			
+		}
+		
 		didSet{
 			
 			if connectionState != oldValue{
 				
 				switch connectionState {
-					
-					case .disconnected:
-						
-						print(":\t \(deviceName) disconnected from '\(tvName)'")
-						
-					case .disconnecting:
-						
-						webSocket.disconnect()
-						
-					case .connecting:
-						
-						webSocket = WebSocket(urlRequest: urlRequest, delegate: self)
-						webSocket.connect()
-						
-					case .connected:
-						
-						print("🔗:\t \(deviceName) connected with '\(tvName)'")
 						
 					case .paired:
 						
@@ -134,7 +147,9 @@ open class TizenDriver:WebSocketDelegate{
 						}
 						// SEND QUEUED COMMANDS ONCE PAIRING SUCCEEDED!!
 						if !commandQueue.isEmpty{
-							queue(commands:)()
+							queue()
+						}else{
+							webSocket.ping()
 						}
 						
 					default:
@@ -156,18 +171,23 @@ open class TizenDriver:WebSocketDelegate{
 		self.port = port
 		self.deviceName = deviceName
 		
+		self.powerStateTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
+			if self.powerState != .undefined{
+				self.powerState = .undefined
+			}
+		}
+		
 		self.pairingInfo = getPreference(forKeyPath: .tizenSettings, .pairingInfo) ?? [:]
 		self.deviceToken = self.pairingInfo[tvName]?[deviceName]
 		if let token = self.deviceToken{
 			print("ℹ️ \t Token:\(token) from prefs for \(tvName)")
 		}
-		
 	}
 	
 	deinit {
 		// perform the deinitialization
-		powerState = .poweringDown
 		connectionState = .disconnecting
+		powerState = .poweringDown
 	}
 	
 	// MARK: - Remotes Functions
@@ -184,6 +204,12 @@ open class TizenDriver:WebSocketDelegate{
 		if let keyCommand = TizenCommand(rawValue:"KEY_\(channelNumber)"){
 			queue(commands:[keyCommand, .KEY_ENTER] )
 		}
+	}
+	
+	public func openApp(_ app:TizenApp){
+		//		if let keyCommand = TizenCommand(rawValue:"KEY_\(channelNumber)"){
+		//			queue(commands:[keyCommand, .KEY_ENTER] )
+		//		}
 	}
 	
 	
@@ -214,31 +240,30 @@ open class TizenDriver:WebSocketDelegate{
 	private func send(commandKey:TizenCommand){
 		
 		let command = """
-		{"method": "ms.remote.control",
-		"params": {
-		"Cmd": "Click",
-		"DataOfCmd": "\(commandKey.rawValue)",
-		"Option": "false",
-		"TypeOfRemote": "SendRemoteKey"
-		}}
-		"""
-		if let webSocket =  self.webSocket{
-			webSocket.send(text: command)
-		}
+ {"method": "ms.remote.control",
+ "params": {
+ "Cmd": "Click",
+ "DataOfCmd": "\(commandKey.rawValue)",
+ "Option": "false",
+ "TypeOfRemote": "SendRemoteKey"
+ }}
+ """
+		webSocket.send(text: command)
 	}
 	
 	// MARK: - Connection lifecycle
 	
 	public func connected() {
+		print("🔗:\t \(deviceName) connected with '\(tvName)'")
 		connectionState = .connected
 	}
 	
 	public func disconnected(error: Error?) {
+		print(":\t \(deviceName) disconnected from '\(tvName)'")
 		connectionState = .disconnected
 	}
 	
 	public func received(text: String) {
-		connectionState = .connected
 		checkPairing(text)
 	}
 	
@@ -248,6 +273,7 @@ open class TizenDriver:WebSocketDelegate{
 	
 	public func received(error: Error) {
 		print("❌:\t Websocket returned error:\n\(error)")
+		connectionState = .disconnected
 	}
 	
 	private func checkPairing(_ result:String){
@@ -274,3 +300,4 @@ open class TizenDriver:WebSocketDelegate{
 	}
 	
 }
+
