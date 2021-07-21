@@ -13,9 +13,8 @@ open class TizenDriver:WebSocketDelegate{
 	var pairingInfo:[String:[String:Int]] = [:]
 	var deviceToken:Int!
 	
-	private var powerStateTimer:Timer!
 	private let powerStatePinger:Pinger = Pinger()
-	public enum PowerState:Int, Comparable{
+	public enum PowerState:Comparable{
 		
 		case undefined
 		case poweredOff
@@ -23,13 +22,9 @@ open class TizenDriver:WebSocketDelegate{
 		case poweringUp
 		case poweredOn
 		
-		// Conform to comparable
-		public static func < (a: PowerState, b: PowerState) -> Bool {
-			return a.rawValue < b.rawValue
-		}
 	}
 	
-	open var powerState:PowerState = .poweredOff{
+	open var powerState:PowerState = .undefined{
 		
 		// Prepare for .poweredOn or .poweredOff
 		willSet{
@@ -48,7 +43,6 @@ open class TizenDriver:WebSocketDelegate{
 					}
 					
 				case .poweringDown:
-					
 					if (powerState != .poweredOff) {
 						// Send KEY_POWER to the TV turn off
 						queue(commands: [.KEY_POWER])
@@ -60,10 +54,13 @@ open class TizenDriver:WebSocketDelegate{
 		}
 		
 		didSet{
+			powerState = physicalPowerState
 			
-			if powerState == .undefined{
-				powerState = physicalPowerState
+			// Always try to connect when powered on
+			if powerState == .poweredOn, let connectionState = self.connectionState, connectionState <= .connected{
+				self.connectionState = .connecting
 			}
+			
 		}
 		
 	}
@@ -73,9 +70,6 @@ open class TizenDriver:WebSocketDelegate{
 			let fysicalPowerState = self.powerStatePinger.ping(ipAddress, timeOut: 1.0, maxResponsTime: 1.0)
 			if fysicalPowerState == true{
 				print("🔲:\t '\(tvName)' powered on")
-				if let connectionState =  self.connectionState, connectionState <= .connected{
-					self.connectionState = .connecting
-				}
 				return .poweredOn
 			}else{
 				print("🔳:\t '\(tvName)' powered off")
@@ -96,7 +90,7 @@ open class TizenDriver:WebSocketDelegate{
 		return webSocket
 	}
 	
-	private enum ConnectionState:Int, Comparable{
+	private enum ConnectionState:Comparable{
 		
 		case undefined
 		case disconnected
@@ -105,11 +99,6 @@ open class TizenDriver:WebSocketDelegate{
 		case connected
 		case paired
 		
-		
-		// Conform to comparable
-		public static func < (a: ConnectionState, b: ConnectionState) -> Bool {
-			return a.rawValue < b.rawValue
-		}
 	}
 	
 	private var connectionState:ConnectionState! = nil{
@@ -170,12 +159,6 @@ open class TizenDriver:WebSocketDelegate{
 		self.ipAddress = ipAddress
 		self.port = port
 		self.deviceName = deviceName
-		
-		self.powerStateTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
-			if self.powerState != .undefined{
-				self.powerState = .undefined
-			}
-		}
 		
 		self.pairingInfo = getPreference(forKeyPath: .tizenSettings, .pairingInfo) ?? [:]
 		self.deviceToken = self.pairingInfo[tvName]?[deviceName]
