@@ -50,16 +50,16 @@ public enum TizenKey:String {
 	case EMANUAL
 	case SEARCH
 	case CAPTION
-	case NUMBER_0
-	case NUMBER_1
-	case NUMBER_2
-	case NUMBER_3
-	case NUMBER_4
-	case NUMBER_5
-	case NUMBER_6
-	case NUMBER_7
-	case NUMBER_8
-	case NUMBER_9
+	case NUMBER_0 = "0"
+	case NUMBER_1 = "1"
+	case NUMBER_2 = "2"
+	case NUMBER_3 = "3"
+	case NUMBER_4 = "4"
+	case NUMBER_5 = "5"
+	case NUMBER_6 = "6"
+	case NUMBER_7 = "7"
+	case NUMBER_8 = "8"
+	case NUMBER_9 = "9"
 }
 
 public enum TizenApp:Int {
