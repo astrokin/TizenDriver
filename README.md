@@ -6,4 +6,4 @@ that store a token for each device that gets connected.
 
 Tested with:
 
-Samsung Q7 Series (49)
+Samsung 49" Q7 Series (QE49Q7FAM)
