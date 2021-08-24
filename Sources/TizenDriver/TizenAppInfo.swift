@@ -1,12 +1,12 @@
 // This file was generated from JSON Schema using quicktype, do not modify it directly.
 // To parse the JSON, add this file to your project and do:
 //
-//   let tizenAppsRootData = try? newJSONDecoder().decode(TizenAppsRootData.self, from: jsonData)
+//   let AppsRootData = try? newJSONDecoder().decode(AppsRootData.self, from: jsonData)
 
 import Foundation
 
-// MARK: - TizenAppsRootData
-struct TizenAppsRootData: Decodable {
+// MARK: - AppsRootData
+struct AppsRootData: Decodable {
 	let data: DataContainer
 	let event: String
 	let from: String
@@ -20,26 +20,26 @@ struct TizenAppsRootData: Decodable {
 
 // MARK: - DataContainer
 struct DataContainer: Decodable{
-	let data: [TizenAppInfo]
+	let data: [AppInfo]
 
 	enum CodingKeys: String, CodingKey {
 		case data = "data"
 	}
 }
 
-extension TizenApp:Decodable{}
+extension TizenDriver.App:Decodable{}
 
-enum TizenAppType:Int, Decodable{
+enum AppType:Int, Decodable{
 	case DEEP_LINK = 2
 	case NATIVE_LAUNCH = 4
 }
 
-// MARK: - TizenAppInfo
-struct TizenAppInfo: Decodable {
+// MARK: - AppInfo
+struct AppInfo: Decodable {
 	
 	let name: String
-	let id: TizenApp
-	let type: TizenAppType
+	let id: TizenDriver.App
+	let type: AppType
 	let icon: String
 	let isLock: Int
 

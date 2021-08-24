@@ -12,12 +12,12 @@ open class TizenDriver:WebSocketDelegate{
 	let deviceName:String
 	var pairingInfo:[String:[String:Int]] = [:]
 	var deviceToken:Int!
-	var installedApps:[TizenAppInfo]?
+	var installedApps:[AppInfo]?
+	var appRunning:Bool?
 	
 	private let powerStatePinger:Pinger = Pinger()
 	public enum PowerState:Comparable{
 		
-		case undefined
 		case poweredOff
 		case poweringDown
 		case poweringUp
@@ -35,60 +35,65 @@ open class TizenDriver:WebSocketDelegate{
 		
 	}
 	
-	open var powerState:PowerState? = nil{
+	open var powerState:PowerState?{
 		
 		// Prepare for .poweredOn or .poweredOff
 		willSet{
 			
-			let tvIsReachable = self.tvIsReachable
-			
-			switch newValue {
-					
-				case .poweringUp:
-					
-					guard tvIsReachable else{
-						// Perform a WakeOnLan to make the TV reachable
-						let tv = Awake.Device(MAC: macAddress, BroadcastAddr: "255.255.255.255", Port: 9)
-						_ = Awake.target(device: tv)
-						return
-					}
-					
-					guard connectionState == .paired else{
-						connectionState = .connecting
-						return
-					}
-					
-					if let powerState = self.powerState, (powerState < .poweredOn){
-						send(command: .KEY(.POWER))
-					}
-					
-				case .poweringDown:
-					
-					if !tvIsReachable{
-						return
-					}else{
+			if newValue != powerState{
+				
+				switch newValue {
+						
+					case .poweringUp:
+						
+						guard tvIsReachable else{
+							// Perform a WakeOnLan to make the TV reachable
+							let tv = Awake.Device(MAC: macAddress, BroadcastAddr: "255.255.255.255", Port: 9)
+							_ = Awake.target(device: tv)
+							return
+						}
 						
 						guard connectionState == .paired else{
 							connectionState = .connecting
 							return
 						}
 						
-						if let powerState = self.powerState, (powerState > .poweredOff){
+						if let powerState = self.powerState, (powerState < .poweredOn){
 							send(command: .KEY(.POWER))
 						}
-					}
-					
-				default:
-					break
+						
+					case .poweringDown:
+						
+						if !tvIsReachable{
+							return
+						}else{
+							
+							guard connectionState == .paired else{
+								connectionState = .connecting
+								return
+							}
+							
+							if let powerState = self.powerState, (powerState > .poweredOff){
+								send(command: .KEY(.POWER))
+							}
+						}
+						
+					default: break
+				}
 			}
-			
 		}
 		
 		didSet{
 			
-			// Always have the powerstate reflect its reachablity
-			powerState = tvIsReachable ? .poweredOn : .poweredOff
-
+			switch powerState{
+					
+				case .poweredOn:
+					Debugger.shared.log(debugLevel: .Native(logType: .info), "'\(tvName.capitalized)' powered on 🔲")
+				case .poweredOff:
+					Debugger.shared.log(debugLevel: .Native(logType: .info), "'\(tvName.capitalized)' powered off 🔳")
+				default: break
+			}
+			
 		}
 	}
 	
@@ -97,14 +102,22 @@ open class TizenDriver:WebSocketDelegate{
 		get{
 			let isReachable = self.powerStatePinger.ping(ipAddress, timeOut: 1.0, maxResponsTime: 1.0)
 			if isReachable{
-				Debugger.shared.log(debugLevel: .Native(logType: .info), "'\(tvName.capitalized)' powered on 🔲")
-				// When reachable always try to connect
-				if (connectionState ==  nil) || (connectionState < .connected){
+				
+				if let powerState = self.powerState, (powerState > .poweringDown) && (powerState != .poweredOn){
+					
+					self.powerState = .poweredOn
+					// When reachable always try to connect
+					
+					
+				}
+				
+				if (powerState == .poweredOn) && ( (connectionState ==  nil) || (connectionState < .connected) ){
 					self.connectionState = .connecting
 				}
+				
 			}else{
-				Debugger.shared.log(debugLevel: .Native(logType: .info), "'\(tvName.capitalized)' powered off 🔳")
-				connectionState = .disconnected
+				self.powerState = .poweredOff
+				self.connectionState = .disconnected
 			}
 			return isReachable
 		}
@@ -123,22 +136,26 @@ open class TizenDriver:WebSocketDelegate{
 	
 	private var connectionState:ConnectionState! = nil{
 		
+		
+		
 		// Prepare for .connected or .disconnected
 		willSet{
 			
-			switch newValue {
-					
-				case .disconnecting:
-					
-					webSocket.disconnect()
-					
-				case .connecting:
-					
-					webSocket.connect()
-					
-				default:
-					break
-					
+			if newValue != connectionState{
+				
+				switch newValue {
+						
+					case .disconnecting:
+						
+						webSocket.disconnect()
+						
+					case .connecting:
+						
+						webSocket.connect()
+						
+					default: break
+						
+				}
 			}
 			
 		}
@@ -164,13 +181,11 @@ open class TizenDriver:WebSocketDelegate{
 						webSocket.ping()
 					}
 					
-				default:
-					break
-					
+				default: break
 			}
 		}
 	}
-	var commandQueue:[TizenCommand] = []
+	var commandQueue:[Command] = []
 	
 	public init(tvName:String, macAddress:String, ipAddress:String, port:Int = 8002, deviceName:String){
 		
@@ -195,11 +210,15 @@ open class TizenDriver:WebSocketDelegate{
 	// MARK: - Public API
 	
 	public func powerOn(){
-		self.powerState = .poweringUp
+		if powerState != .poweredOn{
+			self.powerState = .poweringUp
+		}
 	}
 	
 	public func powerOff(){
-		self.powerState = .poweringDown
+		if powerState != .poweredOff{
+			self.powerState = .poweringDown
+		}
 	}
 	
 	public func cycleTroughChannels(_ numberOfChannels:Int = 10){
@@ -211,30 +230,42 @@ open class TizenDriver:WebSocketDelegate{
 	}
 	
 	public func gotoChannel(_ channelNumber:Int){
-		if let numberKey = TizenKey(rawValue:String(channelNumber)){
+		quitRunningApps()
+		if let numberKey = Key(rawValue:String(channelNumber)){
 			queue(commands:[.KEY(numberKey), .KEY(.ENTER) ] )
 		}
 	}
 	
 	public func getAppList(){
-		queue(commands:[.APPLIST] )
+		queue(commands:[.LISTAPPS] )
 	}
 	
-	public func openApp(_ app:TizenApp){
+	public func openApp(_ app:App){
 		
 		if let installedApps = self.installedApps, installedApps.contains(where: {$0.id == app} ) {
+			quitRunningApps()
 			queue(commands:[.APP(app)] )
+			appRunning = true
 		}else{
 			Debugger.shared.log(debugLevel: .Native(logType: .error), "App \(app) not installed on '\(tvName)'")
 		}
 		
 	}
 	
-	public func openURL(_ httpString:String){
-		queue(commands:[.URL(httpString)] )
+	public func quitRunningApps(){
+		if appRunning == true{
+			queue(commands:[.KEY(.EXIT)]) // = Long pressed KEY_BACK
+			appRunning =  false
+		}
 	}
 	
-	public func queue(commands commandKeys:[TizenCommand]? = nil){
+	public func openURL(_ httpString:String){
+		quitRunningApps()
+		queue(commands:[.URL(httpString)] )
+		appRunning = true
+	}
+	
+	public func queue(commands commandKeys:[Command]? = nil){
 		
 		if let newCommands = commandKeys{
 			commandQueue += newCommands
@@ -250,33 +281,33 @@ open class TizenDriver:WebSocketDelegate{
 			return
 		}
 		
-		commandQueue.forEach{tizenCommand in
-			send(command:tizenCommand)
+		commandQueue.forEach{Command in
+			send(command:Command)
 			sleep(1)
 		}
 		commandQueue = []
 		
 	}
 	
-	private func send(command:TizenCommand){
+	private func send(command:Command){
 		
 		var commandString:String
 		
 		switch command{
-			case .KEY(let tizenKey):
+			case .KEY(let Key):
 				commandString = """
  {
  "method": "ms.remote.control",
  "params": {
  "Cmd": "Click",
- "DataOfCmd": "KEY_\(tizenKey.rawValue)",
+ "DataOfCmd": "KEY_\(Key.rawValue)",
  "Option": "false",
  "TypeOfRemote": "SendRemoteKey"
  }
  }
  """
 				
-			case .APPLIST:
+			case .LISTAPPS:
 				commandString = """
 {
 "method":"ms.channel.emit",
@@ -286,7 +317,7 @@ open class TizenDriver:WebSocketDelegate{
 }
 }
 """
-			case .APP(let tizenApp):
+			case .APP(let App):
 				commandString = """
    {
 "method": "ms.channel.emit",
@@ -294,7 +325,7 @@ open class TizenDriver:WebSocketDelegate{
   "event": "ed.apps.launch",
  "to": "host",
  "data": {
-   "appId": "\(tizenApp.rawValue)",
+   "appId": "\(App.rawValue)",
    "action_type": "DEEP_LINK"
 }
 }
@@ -337,8 +368,8 @@ open class TizenDriver:WebSocketDelegate{
 	}
 	
 	public func received(text: String) {
-		checkPairing(text)
-		checkListedApps(text)
+		checkResultForPairingInfo(text)
+		chekResultForInstalledApps(text)
 	}
 	
 	public func received(data: Data) {
@@ -350,7 +381,7 @@ open class TizenDriver:WebSocketDelegate{
 		connectionState = .disconnected
 	}
 	
-	private func checkPairing(_ result:String){
+	private func checkResultForPairingInfo(_ result:String){
 		
 		if result.contains("token"){
 			
@@ -374,10 +405,10 @@ open class TizenDriver:WebSocketDelegate{
 		}
 	}
 	
-	private func checkListedApps(_ result:String){
+	private func chekResultForInstalledApps(_ result:String){
 		
 		let jsonData = result.data(using: .utf8)!
-		if let appInfo = try? newJSONDecoder().decode(TizenAppsRootData.self, from: jsonData){
+		if let appInfo = try? newJSONDecoder().decode(AppsRootData.self, from: jsonData){
 			self.installedApps = appInfo.data.data
 		}
 		
