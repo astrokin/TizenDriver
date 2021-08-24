@@ -9,9 +9,9 @@ public extension TizenDriver{
 	
 	enum Command{
 		
-		case KEY(Key)
+		case KEY(TizenDriver.Key)
 		case LISTAPPS
-		case APP(App)
+		case APP(TizenDriver.App)
 		case URL(String)
 		
 	}
