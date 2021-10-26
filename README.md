@@ -1,5 +1,7 @@
 # TizenDriver
 
+Make send command do a connect and powon instead of the other way around
+
 Swift based driver for Samsung T.V. with Tizen OS.
 Works only for T.V.'s that uses secure connection over port 8002 and 
 that store a token for each device that gets connected.

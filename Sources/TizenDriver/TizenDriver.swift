@@ -2,7 +2,7 @@ import Foundation
 import Awake
 import JVCocoa
 
-open class TizenDriver:WebSocketDelegate{
+open class TizenDriver:WebSocketDelegate, Secuarable{
 	
 	// MARK: - Setup
 	public let tvName:String
@@ -10,11 +10,12 @@ open class TizenDriver:WebSocketDelegate{
 	let ipAddress:String
 	let port:Int
 	let deviceName:String
-	var pairingInfo:[String:[String:Int]] = [:]
 	var deviceToken:Int!
+	var pairingInfo:[String:[String:Int]] = [:]
 	var installedApps:[AppInfo]?
 	var appRunning:Bool?
 	
+	private let keyChainItem:KeyChainItem
 	private let powerStatePinger:Pinger = Pinger()
 	public enum PowerState:Comparable{
 		
@@ -85,15 +86,17 @@ open class TizenDriver:WebSocketDelegate{
 		
 		didSet{
 			
-			switch powerState{
-					
-				case .poweredOn:
-					Debugger.shared.log(debugLevel: .Native(logType: .info), "'\(tvName.capitalized)' powered on 🔲")
-				case .poweredOff:
-					Debugger.shared.log(debugLevel: .Native(logType: .info), "'\(tvName.capitalized)' powered off 🔳")
-				default: break
+			if powerState != oldValue{
+				
+				switch powerState{
+					case .poweredOn:
+						Debugger.shared.log(debugLevel: .Native(logType: .info), "'\(tvName.capitalized)' powered on 🔲")
+					case .poweredOff:
+						Debugger.shared.log(debugLevel: .Native(logType: .info), "'\(tvName.capitalized)' powered off 🔳")
+					default: break
+				}
+				
 			}
-			
 		}
 	}
 	
@@ -104,13 +107,10 @@ open class TizenDriver:WebSocketDelegate{
 			if isReachable{
 				
 				if let powerState = self.powerState, (powerState > .poweringDown) && (powerState != .poweredOn){
-					
 					self.powerState = .poweredOn
-					// When reachable always try to connect
-					
-					
 				}
 				
+				// When reachable always try to connect
 				if (powerState == .poweredOn) && ( (connectionState ==  nil) || (connectionState < .connected) ){
 					self.connectionState = .connecting
 				}
@@ -176,7 +176,7 @@ open class TizenDriver:WebSocketDelegate{
 					
 					// SEND QUEUED COMMANDS ONCE PAIRING SUCCEEDED!!
 					if !commandQueue.isEmpty{
-						queue()
+						runQueue()
 					}else{
 						webSocket.ping()
 					}
@@ -185,7 +185,7 @@ open class TizenDriver:WebSocketDelegate{
 			}
 		}
 	}
-	var commandQueue:[Command] = []
+	var commandQueue = Queue<TizenDriver.Command>()
 	
 	public init(tvName:String, macAddress:String, ipAddress:String, port:Int = 8002, deviceName:String){
 		
@@ -194,12 +194,20 @@ open class TizenDriver:WebSocketDelegate{
 		self.ipAddress = ipAddress
 		self.port = port
 		self.deviceName = deviceName
+		self.keyChainItem = KeyChainItem(
+			withTag:"Tizen.pairingInfo",
+			kind: "Connection-token for websocket",
+			account:self.deviceName,
+			location: self.tvName,
+			comment: "Unique token-number for each device connecting to the TV\n(Gets regenerated with each connection that is without a valid token)"
+		)
 		
-		self.pairingInfo = getPreference(forKeyPath: .tizenSettings, .pairingInfo) ?? [:]
-		self.deviceToken = self.pairingInfo[tvName]?[deviceName]
-		if let token = self.deviceToken{
-			Debugger.shared.log(debugLevel: .Native(logType: .info), "Token:\(token) from prefs for \(tvName)")
+		if let deviceToken = valueFromKeyChain(item: keyChainItem){
+			Debugger.shared.log(debugLevel: .Native(logType: .info),"Token:\(deviceToken) from keychain for \(tvName)")
+			self.deviceToken = Int(deviceToken)
+			self.pairingInfo = [self.tvName:[self.deviceName:self.deviceToken]]
 		}
+		
 	}
 	
 	deinit {
@@ -224,7 +232,8 @@ open class TizenDriver:WebSocketDelegate{
 	public func cycleTroughChannels(_ numberOfChannels:Int = 10){
 		gotoChannel(1)
 		for _ in 1...numberOfChannels{
-			queue(commands:[.KEY(.CHUP)])
+			commandQueue.enqueue(.KEY(.CHUP))
+			runQueue()
 			sleep(3)
 		}
 	}
@@ -232,19 +241,22 @@ open class TizenDriver:WebSocketDelegate{
 	public func gotoChannel(_ channelNumber:Int){
 		quitRunningApps()
 		if let numberKey = Key(rawValue:String(channelNumber)){
-			queue(commands:[.KEY(numberKey), .KEY(.ENTER) ] )
+			commandQueue.enqueue( .KEY(numberKey), .KEY(.ENTER) )
+			runQueue()
 		}
 	}
 	
 	public func getAppList(){
-		queue(commands:[.LISTAPPS] )
+		commandQueue.enqueue(.LISTAPPS)
+		runQueue()
 	}
 	
 	public func openApp(_ app:App){
 		
 		if let installedApps = self.installedApps, installedApps.contains(where: {$0.id == app} ) {
 			quitRunningApps()
-			queue(commands:[.APP(app)] )
+			commandQueue.enqueue(.APP(app))
+			runQueue()
 			appRunning = true
 		}else{
 			Debugger.shared.log(debugLevel: .Native(logType: .error), "App \(app) not installed on '\(tvName)'")
@@ -254,22 +266,20 @@ open class TizenDriver:WebSocketDelegate{
 	
 	public func quitRunningApps(){
 		if appRunning == true{
-			queue(commands:[.KEY(.EXIT)]) // = Long pressed KEY_BACK
+			commandQueue.enqueue(.KEY(.EXIT)) // = Long pressed KEY_BACK
+			runQueue()
 			appRunning =  false
 		}
 	}
 	
 	public func openURL(_ httpString:String){
 		quitRunningApps()
-		queue(commands:[.URL(httpString)] )
+		commandQueue.enqueue(.URL(httpString))
+		runQueue()
 		appRunning = true
 	}
 	
-	public func queue(commands commandKeys:[Command]? = nil){
-		
-		if let newCommands = commandKeys{
-			commandQueue += newCommands
-		}
+	public func runQueue(){
 		
 		guard (powerState == .poweredOn) else{
 			powerState = .poweringUp
@@ -281,11 +291,11 @@ open class TizenDriver:WebSocketDelegate{
 			return
 		}
 		
-		commandQueue.forEach{Command in
-			send(command:Command)
+		while !commandQueue.isEmpty{
+			let commandToSend = commandQueue.dequeue()!
+			send(command: commandToSend)
 			sleep(1)
 		}
-		commandQueue = []
 		
 	}
 	
@@ -387,19 +397,24 @@ open class TizenDriver:WebSocketDelegate{
 			
 			let regexPattern = "\"token\":\"(\\d{8})\""
 			if let tokenString = result.matchesAndGroups(withRegex: regexPattern).last?.last, let newToken = Int(tokenString){
+				
 				Debugger.shared.log(debugLevel: .Native(logType: .info), "Token:\(tokenString) returned")
 				
-				if newToken != deviceToken{
-					// Try to connect all over again with the new token in place
-					self.deviceToken = newToken
-					self.connectionState = .connecting
-					// Store the pairing of this TV for reuse
-					self.pairingInfo = [self.tvName:[self.deviceName:self.deviceToken]]
-					setPreference(self.pairingInfo, forKeyPath: .tizenSettings, .pairingInfo)
+				if newToken != self.deviceToken{
+					
+					if storeInKeyChain(value: tokenString, item: keyChainItem){
+						// Try to connect all over again with the new token in place
+						self.deviceToken = newToken
+						self.connectionState = .connecting
+						// Store the pairing of this TV for reuse
+						self.pairingInfo = [self.tvName:[self.deviceName:self.deviceToken]]
+					}
+					
 				}else{
 					// All is perfect
 					connectionState = .paired
 				}
+				
 				
 			}
 		}
@@ -416,4 +431,5 @@ open class TizenDriver:WebSocketDelegate{
 	
 	
 }
+
 
