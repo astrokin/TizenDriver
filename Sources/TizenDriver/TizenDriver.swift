@@ -2,7 +2,7 @@ import Foundation
 import Awake
 import JVCocoa
 
-open class TizenDriver:WebSocketDelegate, Secuarable{
+open class TizenDriver:WebSocketDelegate, Securable{
 	
 	// MARK: - Setup
 	public let tvName:String
