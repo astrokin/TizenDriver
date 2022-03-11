@@ -197,13 +197,13 @@ open class TizenDriver:WebSocketDelegate, Securable{
 		self.keyChainItem = KeyChainItem(
 			withTag:"Tizen.pairingInfo",
 			kind: "Connection-token for websocket",
-			account:self.deviceName,
+			account:  self.deviceName,
 			location: self.tvName,
 			comment: "Unique token-number for each device connecting to the TV\n(Gets regenerated with each connection that is without a valid token)"
 		)
 		
 		if let deviceToken = valueFromKeyChain(item: keyChainItem){
-			Debugger.shared.log(debugLevel: .Native(logType: .info),"Token:\(deviceToken) from keychain for \(tvName)")
+			Debugger.shared.log(debugLevel: .Native(logType: .info),"Token: \(deviceToken) from keychain for \(tvName)")
 			self.deviceToken = Int(deviceToken)
 			self.pairingInfo = [self.tvName:[self.deviceName:self.deviceToken]]
 		}
