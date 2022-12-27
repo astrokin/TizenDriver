@@ -1,6 +1,7 @@
 import Foundation
 import Awake
 import JVCocoa
+//import Crypto
 
 open class TizenDriver:WebSocketDelegate, Securable{
 	
@@ -12,27 +13,40 @@ open class TizenDriver:WebSocketDelegate, Securable{
 	let deviceName:String
 	var deviceToken:Int!
 	var pairingInfo:[String:[String:Int]] = [:]
+	var commandQueue = Queue<TizenDriver.Command>()
+	
+	var powerStateReChecker:Timer!
+	
 	var installedApps:[AppInfo]?
 	var appRunning:Bool?
 	
 	private let keyChainItem:KeyChainItem
-	private let powerStatePinger:Pinger = Pinger()
-	public enum PowerState:Comparable{
-		
-		case poweredOff
-		case poweringDown
-		case poweringUp
-		case poweredOn
-		
-	}
+	private let reachabilityPinger:Pinger = Pinger()
+
 	
-	private enum ConnectionState:Comparable{
+	open var tvIsReachable:Bool{
 		
-		case disconnected
-		case disconnecting
-		case connecting
-		case connected
-		case paired
+		get{
+			let isReachable = self.reachabilityPinger.ping(ipAddress, timeOut: 1.0, maxResponsTime: 1.0)
+			if !isReachable{
+				
+				if tvName == "T.V."{
+					print("🐞🐞🐞🐞 T.V. -NOT- reachable") // TODO: - remove after testing
+				}
+				self.commandQueue = Queue<TizenDriver.Command>()
+				self.connectionState = .disconnected
+				self.powerState = .poweredOff
+				
+				
+			}else{
+				
+				if tvName == "T.V."{
+					print("🐞🐞🐞🐞 T.V. is reachable") // TODO: - remove after testing
+				}
+				
+			}
+			return isReachable
+		}
 		
 	}
 	
@@ -47,37 +61,41 @@ open class TizenDriver:WebSocketDelegate, Securable{
 						
 					case .poweringUp:
 						
+						if tvName == "T.V."{
+							print("🐞🐞🐞🐞 T.V. powering up") // TODO: - remove after testing
+						}
+						
 						guard tvIsReachable else{
 							// Perform a WakeOnLan to make the TV reachable
 							let tv = Awake.Device(MAC: macAddress, BroadcastAddr: "255.255.255.255", Port: 9)
 							_ = Awake.target(device: tv)
+							
+							self.reCheckPowerState()
+							
 							return
 						}
 						
-						guard connectionState == .paired else{
-							connectionState = .connecting
-							return
-						}
+						self.powerState = .poweredOn
 						
-						if let powerState = self.powerState, (powerState < .poweredOn){
-							send(command: .KEY(.POWER))
-						}
 						
 					case .poweringDown:
 						
-						if !tvIsReachable{
-							return
-						}else{
+						if tvName == "T.V."{
+							print("🐞🐞🐞🐞 T.V. powering down") // TODO: - remove after testing
+						}
+						
+						guard !tvIsReachable else{
 							
-							guard connectionState == .paired else{
-								connectionState = .connecting
-								return
-							}
-							
-							if let powerState = self.powerState, (powerState > .poweredOff){
+							if connectionState == .paired {
 								send(command: .KEY(.POWER))
 							}
+							
+							self.reCheckPowerState()
+							
+							return
 						}
+						
+						self.powerState = .poweredOff
 						
 					default: break
 				}
@@ -90,8 +108,14 @@ open class TizenDriver:WebSocketDelegate, Securable{
 				
 				switch powerState{
 					case .poweredOn:
+						if tvName == "T.V."{
+							print("🐞🐞🐞🐞 T.V. is powered on") // TODO: - remove after testing
+						}
 						Debugger.shared.log(debugLevel: .Native(logType: .info), "'\(tvName.capitalized)' powered on 🔲")
 					case .poweredOff:
+						if tvName == "T.V."{
+							print("🐞🐞🐞🐞 T.V. is powered off") // TODO: - remove after testing
+						}
 						Debugger.shared.log(debugLevel: .Native(logType: .info), "'\(tvName.capitalized)' powered off 🔳")
 					default: break
 				}
@@ -100,43 +124,33 @@ open class TizenDriver:WebSocketDelegate, Securable{
 		}
 	}
 	
-	open var tvIsReachable:Bool{
+	private func reCheckPowerState(){
 		
-		get{
-			let isReachable = self.powerStatePinger.ping(ipAddress, timeOut: 1.0, maxResponsTime: 1.0)
-			if isReachable{
-				
-				if let powerState = self.powerState, (powerState > .poweringDown) && (powerState != .poweredOn){
-					self.powerState = .poweredOn
-				}
-				
-				// When reachable always try to connect
-				if (powerState == .poweredOn) && ( (connectionState ==  nil) || (connectionState < .connected) ){
-					self.connectionState = .connecting
-				}
-				
-			}else{
-				self.powerState = .poweredOff
-				self.connectionState = .disconnected
+		// Readjust powerState in a short intervals
+		self.powerStateReChecker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
+		
+			switch self.powerState {
+					
+				case .poweringUp:
+					if self.tvIsReachable{
+						self.powerState = .poweredOn
+					}
+				case .poweringDown:
+					if !self.tvIsReachable{
+						self.powerState = .poweredOff
+					}
+				default:
+					// powerState is already stable, no need for the timer for now
+					self.powerStateReChecker.invalidate()
 			}
-			return isReachable
+		
 		}
+		self.powerStateReChecker.tolerance = powerStateReChecker.timeInterval/10.0 // Give the processor some slack with a 10% tolerance on the timeInterval
+
 		
 	}
 	
-	private lazy var webSocket:WebSocket = {
-		let base64DeviceName = Data(deviceName.utf8).base64EncodedString()
-		let connectionString = "wss://\(ipAddress):\(port)/api/v2/channels/samsung.remote.control?name=\(base64DeviceName)&token=\(deviceToken ?? 0)"
-		Debugger.shared.log(debugLevel: .Native(logType: .info), "Connectionstring:\n\(connectionString)")
-		var urlRequest =  URLRequest(url: URL(string: connectionString)!)
-		urlRequest.timeoutInterval = 5
-		let webSocket = WebSocket(urlRequest: urlRequest, delegate: self)
-		return webSocket
-	}()
-	
 	private var connectionState:ConnectionState! = nil{
-		
-		
 		
 		// Prepare for .connected or .disconnected
 		willSet{
@@ -146,12 +160,25 @@ open class TizenDriver:WebSocketDelegate, Securable{
 				switch newValue {
 						
 					case .disconnecting:
+						if tvName == "T.V."{
+							print("🐞🐞🐞🐞 T.V. disconnecting") // TODO: - remove after testing
+						}
 						
 						webSocket.disconnect()
+						Debugger.shared.log(debugLevel: .Native(logType: .info), "\(deviceName.capitalized) disconnecting from '\(tvName)' ")
 						
 					case .connecting:
+						if tvName == "T.V."{
+							print("🐞🐞🐞🐞 T.V. connecting") // TODO: - remove after testing
+						}
+						
+						guard powerState == .poweredOn else {
+							powerState = .poweringUp
+							return
+						}
 						
 						webSocket.connect()
+						Debugger.shared.log(debugLevel: .Native(logType: .info), "\(deviceName.capitalized) connecting to '\(tvName)' ")
 						
 					default: break
 						
@@ -161,7 +188,6 @@ open class TizenDriver:WebSocketDelegate, Securable{
 		}
 		
 		didSet{
-			
 			
 			switch connectionState {
 					
@@ -174,18 +200,31 @@ open class TizenDriver:WebSocketDelegate, Securable{
 						getAppList()
 					}
 					
-					// SEND QUEUED COMMANDS ONCE PAIRING SUCCEEDED!!
-					if !commandQueue.isEmpty{
-						runQueue()
-					}else{
-						webSocket.ping()
-					}
-					
+				case .connected:
+					Debugger.shared.log(debugLevel: .Native(logType: .info), "\(deviceName.capitalized) connected with '\(tvName)'")
+				case .disconnected:
+					Debugger.shared.log(debugLevel: .Native(logType: .info), "\(deviceName.capitalized) disconnected from '\(tvName)'")
 				default: break
 			}
 		}
 	}
-	var commandQueue = Queue<TizenDriver.Command>()
+	
+	private lazy var webSocket:WebSocket = {
+		return newWebSocket
+	}()
+	
+	private var newWebSocket:WebSocket{
+		
+		let base64DeviceName = Data(deviceName.utf8).base64EncodedString()
+		print("🐞🐞🐞🐞 \(deviceName)") // TODO: - remove after testing
+		let connectionString = "wss://\(ipAddress):\(port)/api/v2/channels/samsung.remote.control?name=\(base64DeviceName)&token=\(deviceToken ?? 0)"
+		print("🐞🐞🐞🐞 \(connectionString)") // TODO: - remove after testing
+		Debugger.shared.log(debugLevel: .Native(logType: .info), "Connectionstring:\n\(connectionString)")
+		var urlRequest =  URLRequest(url: URL(string: connectionString)!)
+		urlRequest.timeoutInterval = 5
+		return WebSocket(urlRequest: urlRequest, delegate: self)
+		
+	}
 	
 	public init(tvName:String, macAddress:String, ipAddress:String, port:Int = 8002, deviceName:String){
 		
@@ -201,13 +240,12 @@ open class TizenDriver:WebSocketDelegate, Securable{
 			location: self.tvName,
 			comment: "Unique token-number for each device connecting to the TV\n(Gets regenerated with each connection that is without a valid token)"
 		)
-		
+				
 		if let deviceToken = valueFromKeyChain(item: keyChainItem){
 			Debugger.shared.log(debugLevel: .Native(logType: .info),"Token: \(deviceToken) from keychain for \(tvName)")
 			self.deviceToken = Int(deviceToken)
 			self.pairingInfo = [self.tvName:[self.deviceName:self.deviceToken]]
 		}
-		
 	}
 	
 	deinit {
@@ -218,13 +256,13 @@ open class TizenDriver:WebSocketDelegate, Securable{
 	// MARK: - Public API
 	
 	public func powerOn(){
-		if powerState != .poweredOn{
+		if (powerState != .poweredOn) && (powerState != .poweringUp){
 			self.powerState = .poweringUp
 		}
 	}
 	
 	public func powerOff(){
-		if powerState != .poweredOff{
+		if (powerState != .poweredOff) && (powerState != .poweringDown){
 			self.powerState = .poweringDown
 		}
 	}
@@ -233,7 +271,6 @@ open class TizenDriver:WebSocketDelegate, Securable{
 		gotoChannel(1)
 		for _ in 1...numberOfChannels{
 			commandQueue.enqueue(.KEY(.CHUP))
-			runQueue()
 			sleep(3)
 		}
 	}
@@ -242,13 +279,11 @@ open class TizenDriver:WebSocketDelegate, Securable{
 		quitRunningApps()
 		if let numberKey = Key(rawValue:String(channelNumber)){
 			commandQueue.enqueue( .KEY(numberKey), .KEY(.ENTER) )
-			runQueue()
 		}
 	}
 	
 	public func getAppList(){
 		commandQueue.enqueue(.LISTAPPS)
-		runQueue()
 	}
 	
 	public func openApp(_ app:App){
@@ -256,7 +291,6 @@ open class TizenDriver:WebSocketDelegate, Securable{
 		if let installedApps = self.installedApps, installedApps.contains(where: {$0.id == app} ) {
 			quitRunningApps()
 			commandQueue.enqueue(.APP(app))
-			runQueue()
 			appRunning = true
 		}else{
 			Debugger.shared.log(debugLevel: .Native(logType: .error), "App \(app) not installed on '\(tvName)'")
@@ -267,7 +301,6 @@ open class TizenDriver:WebSocketDelegate, Securable{
 	public func quitRunningApps(){
 		if appRunning == true{
 			commandQueue.enqueue(.KEY(.EXIT)) // = Long pressed KEY_BACK
-			runQueue()
 			appRunning =  false
 		}
 	}
@@ -275,16 +308,10 @@ open class TizenDriver:WebSocketDelegate, Securable{
 	public func openURL(_ httpString:String){
 		quitRunningApps()
 		commandQueue.enqueue(.URL(httpString))
-		runQueue()
 		appRunning = true
 	}
 	
 	public func runQueue(){
-		
-		guard (powerState == .poweredOn) else{
-			powerState = .poweringUp
-			return
-		}
 		
 		guard (connectionState == .paired) else{
 			connectionState = .connecting
@@ -297,6 +324,7 @@ open class TizenDriver:WebSocketDelegate, Securable{
 			sleep(1)
 		}
 		
+		webSocket.ping()
 	}
 	
 	private func send(command:Command){
@@ -368,13 +396,30 @@ open class TizenDriver:WebSocketDelegate, Securable{
 	// MARK: - Connection lifecycle
 	
 	public func connected() {
+		if tvName == "T.V."{
+			print("🐞🐞🐞🐞 connected") // TODO: - remove after testing
+		}
 		Debugger.shared.log(debugLevel: .Event, "\(deviceName.capitalized) connected with '\(tvName)'")
 		connectionState = .connected
 	}
 	
 	public func disconnected(error: Error?) {
 		Debugger.shared.log(debugLevel: .Event, "\(deviceName.capitalized) disconnected from '\(tvName)'")
-		connectionState = .disconnected
+		
+		if (connectionState > .disconnecting){
+			reconnect()
+		}else{
+			connectionState = .disconnected
+		}
+		
+	}
+	
+	public func reconnect(){
+		if tvName == "T.V."{
+			print("🐞🐞🐞🐞 reconnecting") // TODO: - remove after testing
+		}
+		webSocket = newWebSocket
+		connectionState = .connecting
 	}
 	
 	public func received(text: String) {
@@ -395,7 +440,7 @@ open class TizenDriver:WebSocketDelegate, Securable{
 		
 		if result.contains("token"){
 			
-			let regexPattern = "\"token\":\"(\\d{8})\""
+			let regexPattern = "\"token\"\\s?:\\s?\"(\\d{8})\""
 			if let tokenString = result.matchesAndGroups(withRegex: regexPattern).last?.last, let newToken = Int(tokenString){
 				
 				Debugger.shared.log(debugLevel: .Native(logType: .info), "Token:\(tokenString) returned")
@@ -431,5 +476,4 @@ open class TizenDriver:WebSocketDelegate, Securable{
 	
 	
 }
-
 

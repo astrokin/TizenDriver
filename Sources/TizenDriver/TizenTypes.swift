@@ -17,6 +17,9 @@ public extension TizenDriver{
 		case poweredOn
 		
 	}
+}
+
+internal extension TizenDriver{
 	
 	enum ConnectionState:Comparable{
 		
