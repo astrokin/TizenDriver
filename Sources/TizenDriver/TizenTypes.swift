@@ -7,7 +7,7 @@
 
 import Foundation
 
-public extension TizenDriver{
+public extension TizenDriverMonitor {
 	
 	 enum PowerState:Comparable{
 		
@@ -19,7 +19,7 @@ public extension TizenDriver{
 	}
 }
 
-internal extension TizenDriver{
+internal extension TizenDriverMonitor {
 	
 	enum ConnectionState:Comparable{
 		

@@ -5,13 +5,13 @@
 //  Created by Jan Verrept on 28/02/2020.
 //
 
-public extension TizenDriver{
+public extension TizenDriverMonitor{
 	
 	enum Command{
 		
-		case KEY(TizenDriver.Key)
+		case KEY(TizenDriverMonitor.Key)
 		case LISTAPPS
-		case APP(TizenDriver.App)
+		case APP(TizenDriverMonitor.App)
 		case URL(String)
 		
 	}

@@ -27,7 +27,7 @@ struct DataContainer: Decodable{
 	}
 }
 
-extension TizenDriver.App:Decodable{}
+extension TizenDriverMonitor.App:Decodable{}
 
 enum AppType:Int, Decodable{
 	case DEEP_LINK = 2
@@ -38,7 +38,7 @@ enum AppType:Int, Decodable{
 struct AppInfo: Decodable {
 	
 	let name: String
-	let id: TizenDriver.App
+	let id: TizenDriverMonitor.App
 	let type: AppType
 	let icon: String
 	let isLock: Int

@@ -13,7 +13,7 @@ public protocol Logger {
 
 public var logger: Logger?
 
-open class TizenDriver:WebSocketDelegate, Securable{
+open class TizenDriverMonitor :WebSocketDelegate, Securable{
 	
 	// MARK: - Setup
 	public let tvName:String
@@ -23,7 +23,7 @@ open class TizenDriver:WebSocketDelegate, Securable{
 	let deviceName:String
 	var deviceToken:Int!
 	var pairingInfo:[String:[String:Int]] = [:]
-	var commandQueue = Queue<TizenDriver.Command>()
+	var commandQueue = Queue<TizenDriverMonitor.Command>()
 	
 	var powerStateReChecker:Timer!
 	
@@ -43,7 +43,7 @@ open class TizenDriver:WebSocketDelegate, Securable{
 				if tvName == "T.V."{
 					print("🐞🐞🐞🐞 T.V. -NOT- reachable") // TODO: - remove after testing
 				}
-				self.commandQueue = Queue<TizenDriver.Command>()
+				self.commandQueue = Queue<TizenDriverMonitor.Command>()
 				self.connectionState = .disconnected
 				self.powerState = .poweredOff
 				
